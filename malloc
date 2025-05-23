@@ -1,0 +1,73 @@
+#include <iostream>
+#include <cuda_runtime.h>
+
+#define N 256 // 数组大小
+#define THREADS_PER_BLOCK 16 // 每个线程块的线程数
+
+__global__ void addArraysWithSharedMemory(int *A, int *B, int *C) {
+    int index = threadIdx.x + blockIdx.x * blockDim.x;
+    
+    // 在共享内存中分配空间
+    __shared__ int shared_A[THREADS_PER_BLOCK];
+    __shared__ int shared_B[THREADS_PER_BLOCK];
+
+    // 加载数据到共享内存
+    if (index < N) {
+        shared_A[threadIdx.x] = A[index];
+        shared_B[threadIdx.x] = B[index];
+    }
+    
+    __syncthreads(); // 同步线程
+
+    // 计算结果
+    if (index < N) {
+        C[index] = shared_A[threadIdx.x] + shared_B[threadIdx.x];
+    }
+}
+
+int main() {
+    int size = N * sizeof(int);
+    
+    // 主机内存分配
+    int *h_A = (int*)malloc(size);
+    int *h_B = (int*)malloc(size);
+    int *h_C = (int*)malloc(size);
+    
+    // 初始化数据
+    for (int i = 0; i < N; i++) {
+        h_A[i] = i;
+        h_B[i] = i * 2;
+    }
+    
+    // 设备内存分配
+    int *d_A, *d_B, *d_C;
+    cudaMalloc((void**)&d_A, size);
+    cudaMalloc((void**)&d_B, size);
+    cudaMalloc((void**)&d_C, size);
+    
+    // 拷贝数据到设备
+    cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
+    
+    // 启动核函数
+    int numBlocks = (N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    addArraysWithSharedMemory<<<numBlocks, THREADS_PER_BLOCK>>>(d_A, d_B, d_C);
+    
+    // 拷贝结果回主机
+    cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
+    
+    // 打印前10个结果
+    for (int i = 0; i < 10; i++) {
+        std::cout << "C[" << i << "] = " << h_C[i] << std::endl;
+    }
+    
+    // 释放内存
+    free(h_A);
+    free(h_B);
+    free(h_C);
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
+    
+    return 0;
+}
